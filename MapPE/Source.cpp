@@ -11,9 +11,6 @@ int print_fields(PIMAGE_DOS_HEADER dos_h, PIMAGE_DOS_HEADER pblock)
 	// Get pointer to NT HEADER
 	PIMAGE_NT_HEADERS nt_header = (PIMAGE_NT_HEADERS)(dos_h->e_lfanew + (DWORDLONG)pblock);
 	printf_s("nt header -> %p\n", nt_header);
-	DWORD64 pblockk = (DWORD64)pblock;
-	DWORD64 elfanew = dos_h->e_lfanew;
-	DWORD64 address = (dos_h->e_lfanew + (DWORDLONG)pblock);
 
 	// Get FILE HEADER
 	IMAGE_FILE_HEADER file_header = nt_header->FileHeader;
@@ -50,10 +47,6 @@ int print_fields(PIMAGE_DOS_HEADER dos_h, PIMAGE_DOS_HEADER pblock)
 
 		location += sectionsize;
 	}
-
-
-
-
 	return 1;
 }
 
