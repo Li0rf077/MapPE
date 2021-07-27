@@ -1,4 +1,4 @@
-#include <Windows.h>
+﻿#include <Windows.h>
 #include <winnt.h>
 #include <stdio.h>
 #include <processthreadsapi.h>
@@ -31,29 +31,66 @@ int print_fields(PIMAGE_DOS_HEADER dos_h, PIMAGE_DOS_HEADER pblock)
 	printf_s("data dir 1 - virtual address -> %x\n", datadir_imports.VirtualAddress);
 
 	// get import directory RVA
-	DWORD64 importdirRVA = (DWORD64)pblock + opt_header.DataDirectory[1].VirtualAddress;
+	DWORD64 importdirRVA = (DWORD64)nt_header + opt_header.DataDirectory[1].VirtualAddress;
 
 	// First, find .rdata section from section headers
-	//DWORD64 sectionslocation = (DWORD64)(nt_header + (sizeof(DWORD64) + (DWORD64)(sizeof(IMAGE_FILE_HEADER)) + (DWORD64)nt_header->FileHeader.SizeOfOptionalHeader));
 	DWORD64 sectionsize = (DWORD64)sizeof(IMAGE_SECTION_HEADER);
 
-	DWORD64 size = sizeof(DWORD64);
-	printf_s("nt header -> %p\n", nt_header);
-	DWORD64 sizefileh = (DWORD64)(sizeof(IMAGE_FILE_HEADER));
-	DWORD64 sizeopth = (DWORD64)nt_header->FileHeader.SizeOfOptionalHeader;
-	PIMAGE_SECTION_HEADER location = (PIMAGE_SECTION_HEADER)(dos_h->e_lfanew + (DWORDLONG)pblock + size + sizefileh + sizeopth);
+	// Find first section
+	PIMAGE_SECTION_HEADER sectionheader = IMAGE_FIRST_SECTION(nt_header);
 
-	for (int i = 0; i < file_header.NumberOfSections; i++)
+	// Save value of section address
+	PIMAGE_SECTION_HEADER sectionaddress = 0;
+	DWORD64 sectionVA = 0;
+
+	for (int i = 0; i < file_header.NumberOfSections; i++, ++sectionheader)
 	{
-		PIMAGE_SECTION_HEADER section = (PIMAGE_SECTION_HEADER)(location);
-		printf_s("section NAME -> %s, section size -> %ld\n", section->Name, section->SizeOfRawData);
-
-		location += sectionsize;
+		// calaculate addresses of section addresses + addresses when they are finished
+		DWORD64 va = (DWORD64)sectionheader->VirtualAddress + (DWORD64)nt_header + (DWORD64)file_header.SizeOfOptionalHeader + (DWORD64)sizeof(IMAGE_FILE_HEADER) + 8;
+		DWORD64 va_size = (DWORD64)sectionheader->VirtualAddress + (DWORD64)sectionheader->Misc.VirtualSize + (DWORD64)nt_header + (DWORD64)file_header.SizeOfOptionalHeader + (DWORD64)sizeof(IMAGE_FILE_HEADER) + 8;
+		
+		// Get section where import table is
+		if (importdirRVA >= va && importdirRVA <= va_size)
+		{
+			printf_s("FOUND IMPORT SECTION! -> %s\n", sectionheader->Name);
+			sectionaddress = sectionheader;
+			sectionVA = va;
+		}
+		printf_s("%s\n", sectionheader->Name);
 	}
 
+	// calculate offset of import table
+	// formula -> nt_header + section offset from EP(sectionheader->viraddress) + (import dir - section address)
+	if (sectionaddress && sectionVA)
+	{
+		// get file offset to import table
+		DWORD64 rawOffset = (DWORD64)pblock + sectionaddress->PointerToRawData;
+		DWORD64 importVA = nt_header->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT].VirtualAddress;
 
+		// Calculate import table address
+		PIMAGE_IMPORT_DESCRIPTOR import_table = (PIMAGE_IMPORT_DESCRIPTOR)(rawOffset + (importVA - sectionaddress->VirtualAddress));
 
+		for (; import_table->Name != 0; import_table++) {
 
+			// Print current dll name. calculation: import table + offset to name only.
+			printf_s("%s\n", rawOffset + (import_table->Name - sectionaddress->VirtualAddress));
+
+			DWORD fst = import_table->OriginalFirstThunk;
+
+			PIMAGE_THUNK_DATA thunk = (PIMAGE_THUNK_DATA)(rawOffset + (import_table->OriginalFirstThunk - sectionaddress->VirtualAddress));
+
+			for (; thunk->u1.AddressOfData != 0; thunk++)
+			{
+				if (thunk->u1.AddressOfData > 0x80000000) {
+					//show lower bits of the value to get the ordinal ¯\_(ツ)_/¯
+					printf("\tOrdinal: %x\n", (WORD)thunk->u1.AddressOfData);
+				}
+				else {
+					printf("\t%s\n", rawOffset + (thunk->u1.AddressOfData - sectionaddress->VirtualAddress + 2));
+				}
+			}	
+		}
+	}
 	return 1;
 }
 
